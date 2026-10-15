@@ -1,5 +1,9 @@
 """Home Assistant AI Tools."""
 
+from homeassistant.helpers import config_validation as cv
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema("ha_ai_tools")
+
 
 async def async_setup(hass, config):
     from pathlib import Path

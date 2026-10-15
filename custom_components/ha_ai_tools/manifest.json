@@ -2,11 +2,12 @@
   "domain": "ha_ai_tools",
   "name": "Home Assistant AI Tools",
   "after_dependencies": [
-    "extended_openai_conversation",
-    "automation",
-    "weather",
     "assist_satellite",
-    "text"
+    "automation",
+    "config",
+    "extended_openai_conversation",
+    "text",
+    "weather"
   ],
   "codeowners": [
     "@q848899176"
