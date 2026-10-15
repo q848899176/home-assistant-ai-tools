@@ -1,0 +1,9 @@
+{
+  "title": "AI 家庭助手",
+  "config": {
+    "step": {"user": {"title": "配置 AI 家庭助手", "description": "复用现有 DeepSeek 对话配置。播报设备也可以稍后在侧栏 AI 工具中勾选。", "data": {"source_entity": "现有模型来源", "outputs": "默认播报设备", "weather_entity": "默认天气实体", "location_name": "默认地点名称"}}},
+    "error": {"invalid_config": "配置无效，请检查模型来源、播报能力与天气实体。"},
+    "abort": {"already_configured": "已经配置，请到侧栏 AI 工具修改设置。"}
+  },
+  "options": {"step": {"init": {"title": "AI 家庭助手设置", "description": "更多地点、播报设备与永久记忆可在侧栏 AI 工具中管理。", "data": {"source_entity": "现有模型来源", "outputs": "默认播报设备", "weather_entity": "默认天气实体", "location_name": "默认地点名称"}}}, "error": {"invalid_config": "配置无效，请检查已选择的实体。"}}
+}

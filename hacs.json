@@ -1,0 +1,7 @@
+{
+  "name": "Home Assistant AI Tools",
+  "homeassistant": "2026.10.1",
+  "country": "CN",
+  "zip_release": true,
+  "filename": "ha_ai_tools.zip"
+}

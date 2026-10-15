@@ -1,0 +1,27 @@
+{
+  "domain": "ha_ai_tools",
+  "name": "Home Assistant AI Tools",
+  "after_dependencies": [
+    "extended_openai_conversation",
+    "automation",
+    "weather",
+    "assist_satellite",
+    "text"
+  ],
+  "codeowners": [
+    "@q848899176"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "conversation",
+    "frontend",
+    "http",
+    "panel_custom"
+  ],
+  "documentation": "https://github.com/q848899176/home-assistant-ai-tools",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/q848899176/home-assistant-ai-tools/issues",
+  "requirements": [],
+  "version": "0.1.2"
+}
