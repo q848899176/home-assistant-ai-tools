@@ -1,0 +1,87 @@
+query_image:
+  name: 图像问答
+  description: 仅管理员或可信 HA 自动化可用；图片将发送到所选助手配置的模型。最多 10 张静态图片，每张 10 MiB、合计 20 MiB。本地图片仅限配置目录 www 下，远程地址仅支持 HTTP(S)。
+  fields:
+    config_entry:
+      name: 集成配置
+      description: AI 工具根配置条目 ID，或可唯一映射到助手的模型连接 ID。
+      required: true
+      selector:
+        config_entry:
+          integration: ha_ai_tools
+    profile_id:
+      name: 对话助手 ID
+      description: 留空使用默认助手；同一连接有多个助手时必须指定。
+      selector:
+        text:
+    model:
+      name: 视觉模型
+      description: 留空使用助手的模型；可临时指定支持视觉的模型。
+      selector:
+        text:
+    prompt:
+      name: 问题
+      required: true
+      example: 图片中有什么？
+      selector:
+        text:
+          multiline: true
+    images:
+      name: 图片列表
+      required: true
+      example: '[{"url": "/config/www/photo.png"}]'
+      selector:
+        object:
+    max_tokens:
+      name: 最大回答 token 数
+      default: 300
+      selector:
+        number:
+          min: 1
+          max: 128000
+          mode: box
+change_config:
+  name: 修改模型连接
+  description: 仅已登录的管理员可更新；验证成功后保存，失败保留旧配置。空白密钥保留现有密钥。
+  fields:
+    config_entry:
+      name: 集成配置
+      description: AI 工具根配置条目 ID，或可唯一映射的模型连接 ID。
+      required: true
+      selector:
+        config_entry:
+          integration: ha_ai_tools
+    profile_id:
+      name: 对话助手 ID
+      selector:
+        text:
+    api_key:
+      name: API 密钥
+      selector:
+        text:
+          type: password
+    base_url:
+      name: API 地址
+      example: https://api.openai.com/v1
+      selector:
+        text:
+    api_version:
+      name: API 版本
+      selector:
+        text:
+    organization:
+      name: 组织
+      selector:
+        text:
+    skip_authentication:
+      name: 跳过认证
+      selector:
+        boolean:
+    api_provider:
+      name: 协议提供方
+      selector:
+        select:
+          options:
+            - openai
+            - azure
+          mode: dropdown

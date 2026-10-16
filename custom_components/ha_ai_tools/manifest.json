@@ -5,7 +5,9 @@
     "assist_satellite",
     "automation",
     "config",
-    "extended_openai_conversation",
+    "energy",
+    "recorder",
+    "script",
     "text",
     "weather"
   ],
@@ -23,6 +25,11 @@
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/q848899176/home-assistant-ai-tools/issues",
-  "requirements": [],
-  "version": "0.1.2"
+  "requirements": [
+    "beautifulsoup4>=4.13.3",
+    "jsonschema==4.25.1",
+    "openai>=3.10.0",
+    "xmltodict>=1.0.4"
+  ],
+  "version": "0.2.0"
 }

@@ -340,50 +340,10 @@ async def async_tool(manager, name, args, user_input, request_id, generation=Non
     if name == "forget_memory":
         return await manager.async_forget(args.get("id"), scope)
     if name == "execute_services":
-        exposed = exposed_entities(manager.hass)
-        calls = args.get("list")
-        if not isinstance(calls, list) or not 1 <= len(calls) <= 20:
-            raise ValueError("一次可执行1至20项设备操作")
-        for call in calls:
-            if not isinstance(call, dict) or not isinstance(call.get("service_data"), dict):
-                raise ValueError("操作参数错误")
-            domain, service = call.get("domain"), call.get("service")
-            data = call["service_data"]
-            validate_automation(
-                {"actions": [{"action": f"{domain}.{service}", "data": data}]},
-                set(exposed),
-                manager.hass.services.has_service,
-            )
-            if domain not in CONTROL_DOMAINS or not manager.hass.services.has_service(
-                domain, service
-            ):
-                raise ValueError("不允许的设备操作")
-            targets = data.get("entity_id", [])
-            targets = [targets] if isinstance(targets, str) else targets
-            if (
-                not isinstance(targets, list)
-                or not targets
-                or any(t not in exposed or t.split(".", 1)[0] != domain for t in targets)
-            ):
-                raise ValueError("操作包含未公开或不匹配的实体")
-            if "device_id" in data or "area_id" in data:
-                raise ValueError("只允许操作已公开的具体实体")
-        results = []
-        for call in calls:
-            await manager.hass.services.async_call(
-                call["domain"],
-                call["service"],
-                call["service_data"],
-                blocking=True,
-                context=user_input.context,
-            )
-            results.append(
-                {
-                    "domain": call["domain"],
-                    "service": call["service"],
-                    "entity_id": call["service_data"]["entity_id"],
-                    "executed": True,
-                }
-            )
-        return {"results": results}
+        from .functions import FunctionExecutor
+
+        result = await FunctionExecutor(manager).async_execute(
+            {"type": "native", "name": "execute_service"}, args, user_input, request_id
+        )
+        return {"results": result}
     raise ValueError("未知工具")

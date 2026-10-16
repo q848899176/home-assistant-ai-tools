@@ -310,7 +310,8 @@ async def test_each_reminder_can_use_devices_other_than_defaults():
     restored = manager(m.store.data)
     await restored.async_load()
     assert [r["outputs"] for r in restored.data["reminders"]] == [
-        ["text.speaker_play_text"], ["assist_satellite.voice"]
+        ["text.speaker_play_text"],
+        ["assist_satellite.voice"],
     ]
 
 
@@ -343,9 +344,7 @@ async def test_due_reminders_send_only_to_their_own_devices():
     for reminder in m.data["reminders"]:
         reminder["at"] = (models.now() - timedelta(seconds=1)).isoformat()
     await m.async_run_due()
-    assert sent == [
-        ("喝水", ["text.speaker_play_text"]), ("吃药", ["assist_satellite.voice"])
-    ]
+    assert sent == [("喝水", ["text.speaker_play_text"]), ("吃药", ["assist_satellite.voice"])]
     assert [r["status"] for r in m.store.data["reminders"]] == ["completed", "completed"]
 
 
@@ -381,3 +380,26 @@ async def test_only_pending_reminder_can_change_devices(status):
     m.data["reminders"][0]["status"] = status
     with pytest.raises(ValueError):
         await m.async_update_reminder_outputs(r["id"], ["assist_satellite.voice"])
+
+
+async def test_shutdown_awaits_inflight_delivery_before_reloading_store():
+    m = manager()
+    await m.async_load()
+    r = await m.async_add_reminder({"message": "即将播报", "in_minutes": 1}, "shutdown")
+    m.data["reminders"][0]["at"] = (models.now() - timedelta(seconds=1)).isoformat()
+    started = asyncio.Event()
+
+    async def broadcast(*_):
+        started.set()
+        await asyncio.Event().wait()
+
+    m.async_broadcast = broadcast
+    delivery = asyncio.create_task(m.async_run_due())
+    await started.wait()
+    await m.async_shutdown()
+    assert delivery.cancelled()
+    assert not m.active_tasks and not m.function_tasks
+    restarted = manager(m.data)
+    await restarted.async_load()
+    assert restarted.data["reminders"][0]["id"] == r["id"]
+    assert restarted.data["reminders"][0]["status"] == "failed"

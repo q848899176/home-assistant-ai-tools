@@ -1,5 +1,6 @@
 """管理员管理接口。"""
 
+import json
 import logging
 from copy import deepcopy
 
@@ -64,7 +65,7 @@ def broadcast_devices(manager):
                 {
                     "entity_id": state.entity_id,
                     "name": state.name,
-                    "aliases": sorted(entity.aliases) if entity else [],
+                    "aliases": er.async_get_entity_aliases(hass, entity) if entity else [],
                     "area": area.name if area else "未分配房间",
                     "available": state.state not in ("unavailable", "unknown"),
                 }
@@ -88,8 +89,24 @@ def snapshot(manager):
             sources.append({"entity_id": state.entity_id, "name": state.name})
         if state.entity_id.startswith("weather."):
             weather.append({"entity_id": state.entity_id, "name": state.name, "state": state.state})
+    from .provider import list_connections, list_profiles
+
+    profiles = list_profiles(manager.entry)
+    for profile in profiles:
+        if _function_credentials(profile.get("functions")):
+            profile["functions"] = ""
+            profile["functions_redacted"] = True
+
     return {
-        "settings": dict(manager.settings),
+        "connections": list_connections(manager.entry),
+        "profiles": profiles,
+        "native_connection": bool(list_connections(manager.entry)),
+        "migration_error": getattr(manager, "migration_error", ""),
+        "settings": {
+            k: v
+            for k, v in manager.settings.items()
+            if k in {"source_entity", "outputs", "locations"}
+        },
         "outputs": broadcast_devices(manager),
         "weather": weather,
         "sources": sources,
@@ -103,7 +120,112 @@ def snapshot(manager):
     }
 
 
+def _function_credentials(raw):
+    """Never return administrator HTTP credentials as ordinary page state."""
+    import yaml
+
+    if isinstance(raw, str):
+        try:
+            raw = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            return True
+
+    def visit(value):
+        if isinstance(value, dict):
+            return any(
+                str(key).lower()
+                in {
+                    "headers",
+                    "authentication",
+                    "username",
+                    "password",
+                    "api_key",
+                    "token",
+                    "secret",
+                    "cookie",
+                }
+                or visit(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, list):
+            return any(visit(item) for item in value)
+        return isinstance(value, str) and bool(models.SENSITIVE.search(value))
+
+    return visit(raw)
+
+
 async def async_action(manager, action, payload):
+    if action == "preview_legacy":
+        from .functions import compile_functions
+        from .provider import get_provider, validate_profile
+
+        legacy, _ = get_provider(manager.hass, payload.get("source_entity"))
+        entries = [s for s in legacy.subentries.values() if s.subentry_type == "conversation"]
+        profiles = []
+        for subentry in entries or [None]:
+            profile = validate_profile(dict(subentry.data) if subentry else dict(legacy.options))
+            profiles.append(
+                {
+                    "name": subentry.title if subentry else legacy.title,
+                    "chat_model": profile["chat_model"],
+                    "max_tokens": profile["max_tokens"],
+                    "function_count": len(compile_functions(profile["functions"])),
+                    "prompt_configured": bool(profile["prompt"]),
+                }
+            )
+        component = manager.hass.data.get("automation")
+        references = [
+            entity.entity_id
+            for entity in getattr(component, "entities", [])
+            if "extended_openai_conversation"
+            in json.dumps(getattr(entity, "raw_config", {}), default=str)
+        ]
+        return {
+            "name": legacy.title,
+            "profiles": profiles,
+            "references": references,
+            "warnings": [
+                "原提示词和参数将保留，同时遵守北京时间、真实工具结果和记忆归属约束。",
+                "旧集成配置会保留作回退，引用旧服务或事件的自动化不会自动修改。",
+            ],
+        }
+    if action in {"save_connection", "save_profile", "import_legacy", "test_connection"}:
+        from .provider import (
+            async_import_legacy,
+            async_save_connection,
+            async_save_profile,
+            async_test_connection,
+        )
+
+        if action == "save_connection":
+            return await async_save_connection(manager, payload)
+        if action == "save_profile":
+            return await async_save_profile(manager, payload)
+        if action == "import_legacy":
+            result = await async_import_legacy(manager, payload.get("source_entity"))
+            manager.migration_error = ""
+            manager.hass.config_entries.async_update_entry(
+                manager.entry, data={**manager.entry.data, "native_migration_completed": True}
+            )
+            return result
+        return await async_test_connection(
+            manager, payload.get("connection_id"), payload.get("profile_id")
+        )
+    if action == "validate_functions":
+        from .functions import compile_functions
+        from .provider import get_profile
+        from .tools import TOOLS
+
+        reserved = [t["function"]["name"] for t in TOOLS]
+        raw = payload.get("functions", "")
+        if "functions" not in payload and payload.get("profile_id"):
+            raw = get_profile(manager.entry, payload["profile_id"])["functions"]
+        definitions = compile_functions(raw, reserved=reserved)
+        return {
+            "valid": True,
+            "count": len(definitions),
+            "names": [d["spec"]["name"] for d in definitions],
+        }
     if action == "save_settings":
         settings = validate_settings(manager, payload)
         if "source_entity" in settings:
@@ -119,7 +241,9 @@ async def async_action(manager, action, payload):
     if action == "cancel_reminder":
         return await manager.async_cancel_reminder(payload.get("id"))
     if action == "update_reminder_outputs":
-        return await manager.async_update_reminder_outputs(payload.get("id"), payload.get("outputs"))
+        return await manager.async_update_reminder_outputs(
+            payload.get("id"), payload.get("outputs")
+        )
     if action == "delete_reminder_history":
         return await manager.async_delete_reminder_history(payload.get("id"))
     if action == "clear_reminder_history":

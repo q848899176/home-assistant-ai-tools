@@ -59,7 +59,8 @@ async def test_home_assistant_voice_is_also_known_as_nabu(tmp_path, monkeypatch)
 
     hass = HomeAssistant(str(tmp_path))
     hass.states.async_set(
-        "assist_satellite.home_assistant_voice_test", "idle",
+        "assist_satellite.home_assistant_voice_test",
+        "idle",
         {"friendly_name": "Home Assistant Voice", "supported_features": 1},
     )
     registry = SimpleNamespace(async_get=lambda key: None, async_get_area=lambda key: None)
@@ -72,3 +73,73 @@ async def test_home_assistant_voice_is_also_known_as_nabu(tmp_path, monkeypatch)
     m = manager()
     m.hass = hass
     assert broadcast_devices(m)[0]["aliases"] == ["Nabu"]
+
+
+async def test_snapshot_never_returns_legacy_or_native_connection_credentials(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers import area_registry, device_registry, entity_registry
+
+    from custom_components.ha_ai_tools.api import snapshot
+
+    m = manager()
+    m.entry.data = {"api_key": "PRIVATE_SENTINEL", "outputs": [], "locations": {}}
+    m.entry.subentries = {
+        "connection": SimpleNamespace(
+            subentry_type="connection",
+            subentry_id="connection",
+            data={
+                "id": "first",
+                "name": "连接",
+                "api_key": "PRIVATE_SENTINEL",
+                "base_url": "https://api.example.invalid/v1",
+                "api_provider": "openai",
+            },
+        )
+    }
+    m.hass = HomeAssistant(str(tmp_path))
+    empty = SimpleNamespace(
+        async_get=lambda key: None, async_get_area=lambda key: None, entities={}
+    )
+    for module in (area_registry, device_registry, entity_registry):
+        monkeypatch.setattr(module, "async_get", lambda hass: empty)
+    value = snapshot(m)
+    assert "PRIVATE_SENTINEL" not in str(value)
+    assert "api_key" not in value["settings"]
+    assert "connections" in value and "profiles" in value
+
+
+async def test_legacy_preview_excludes_credentials_and_reports_parameters(monkeypatch):
+    from types import SimpleNamespace
+
+    from custom_components.ha_ai_tools import provider
+    from custom_components.ha_ai_tools.api import async_action
+
+    m = manager()
+    m.hass.data = {}
+    legacy = SimpleNamespace(
+        title="旧连接",
+        options={"chat_model": "old-model", "functions": "[]"},
+        subentries={},
+        data={"api_key": "PRIVATE_SENTINEL"},
+    )
+    monkeypatch.setattr(provider, "get_provider", lambda *_: (legacy, None))
+    result = await async_action(m, "preview_legacy", {"source_entity": "conversation.old"})
+    assert "PRIVATE_SENTINEL" not in str(result)
+    assert result["profiles"][0]["chat_model"] == "old-model"
+    assert result["profiles"][0]["function_count"] == 0
+
+
+def test_advanced_function_authentication_is_hidden_from_page_state():
+    from custom_components.ha_ai_tools.api import _function_credentials
+
+    assert _function_credentials(
+        [{"function": {"type": "rest", "headers": {"Authorization": "credential"}}}]
+    )
+    assert _function_credentials("- function:\n    type: rest\n    password: credential\n")
+    assert not _function_credentials(
+        '- function:\n    type: template\n    value_template: "{{ value }}"\n'
+    )

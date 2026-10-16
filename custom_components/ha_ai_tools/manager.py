@@ -22,6 +22,9 @@ class ToolsManager:
         self.data = models.new_state()
         self.lock = asyncio.Lock()
         self.session_locks = {}
+        self.function_tasks = set()
+        self.active_tasks = set()
+        self.profile_lock = asyncio.Lock()
         self._timer = None
         self._started = False
         self._retry_delay = 0
@@ -127,9 +130,19 @@ class ToolsManager:
 
     def async_stop(self):
         self._started = False
+        for task in self.function_tasks:
+            task.cancel()
+        self.function_tasks.clear()
         if self._timer:
             self._timer.cancel()
             self._timer = None
+
+    async def async_shutdown(self):
+        tasks = (self.function_tasks | self.active_tasks) - {asyncio.current_task()}
+        self.async_stop()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     def async_schedule(self):
         if not self._started:
@@ -286,6 +299,8 @@ class ToolsManager:
         return dict(await asyncio.gather(*(send(e) for e in dict.fromkeys(outputs))))
 
     async def async_run_due(self):
+        task = asyncio.current_task()
+        self.active_tasks.add(task)
         try:
             due = [
                 r["id"]
@@ -335,6 +350,7 @@ class ToolsManager:
             self._retry_delay = 60
             _LOGGER.error("提醒处理未完成，请检查存储与任务状态: %s", type(err).__name__)
         finally:
+            self.active_tasks.discard(task)
             self.async_schedule()
 
     async def async_weather(self, location=None, kind="current"):

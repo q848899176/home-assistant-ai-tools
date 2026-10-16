@@ -1,9 +1,150 @@
 {
   "title": "AI 家庭助手",
   "config": {
-    "step": {"user": {"title": "配置 AI 家庭助手", "description": "复用现有 DeepSeek 对话配置。播报设备也可以稍后在侧栏 AI 工具中勾选。", "data": {"source_entity": "现有模型来源", "outputs": "默认播报设备", "weather_entity": "默认天气实体", "location_name": "默认地点名称"}}},
-    "error": {"invalid_config": "配置无效，请检查模型来源、播报能力与天气实体。"},
-    "abort": {"already_configured": "已经配置，请到侧栏 AI 工具修改设置。"}
+    "step": {
+      "user": {
+        "title": "配置 AI 家庭助手",
+        "description": "直接配置独立模型接口，支持 OpenAI、DeepSeek、本地兼容服务和 Azure。无需安装其他对话集成；更多连接、助手和高级参数可在创建后管理。",
+        "data": {
+          "name": "名称",
+          "api_provider": "接口类型",
+          "api_key": "API 密钥",
+          "base_url": "Base URL",
+          "api_version": "API Version（Azure 必填）",
+          "organization": "Organization（可选）",
+          "skip_authentication": "跳过认证（不发送密钥）",
+          "clear_api_key": "明确清除已保存的密钥",
+          "chat_model": "模型名称",
+          "outputs": "默认播报设备",
+          "weather_entity": "默认天气实体",
+          "location_name": "默认地点名称"
+        }
+      },
+      "reauth_connection": {
+        "title": "选择要更新的模型连接",
+        "data": {
+          "connection_id": "模型连接"
+        }
+      },
+      "reauth_credentials": {
+        "title": "更新模型连接",
+        "description": "API 密钥留空代表保留。明确清除密钥须同时启用跳过认证。保存前验证候选连接，失败保留当前配置。",
+        "data": {
+          "name": "名称",
+          "api_provider": "接口类型",
+          "api_key": "API 密钥",
+          "base_url": "Base URL",
+          "api_version": "API Version（Azure 必填）",
+          "organization": "Organization（可选）",
+          "skip_authentication": "跳过认证（不发送密钥）",
+          "clear_api_key": "明确清除已保存的密钥"
+        }
+      }
+    },
+    "error": {
+      "invalid_config": "配置无效，请检查模型连接、提示词、函数和参数范围。"
+    },
+    "abort": {
+      "no_connection": "请先添加一个模型连接。",
+      "already_configured": "已经配置，请在集成子条目或侧栏 AI 工具中管理。"
+    }
   },
-  "options": {"step": {"init": {"title": "AI 家庭助手设置", "description": "更多地点、播报设备与永久记忆可在侧栏 AI 工具中管理。", "data": {"source_entity": "现有模型来源", "outputs": "默认播报设备", "weather_entity": "默认天气实体", "location_name": "默认地点名称"}}}, "error": {"invalid_config": "配置无效，请检查已选择的实体。"}}
+  "options": {
+    "step": {
+      "import_legacy": {
+        "title": "导入旧 EOC 配置",
+        "description": "读取所选连接的全部助手、提示词、函数与参数，验证后启用独立连接。原配置保留，重复导入不会重复创建。",
+        "data": {
+          "source_entity": "原 Extended OpenAI 对话实体"
+        }
+      },
+      "settings": {
+        "title": "家庭助手设置",
+        "description": "更多地点、播报设备与永久记忆可在侧栏 AI 工具中管理。模型连接和对话助手使用独立子条目配置。",
+        "data": {
+          "outputs": "默认播报设备",
+          "weather_entity": "默认天气实体",
+          "location_name": "默认地点名称"
+        }
+      },
+      "init": {
+        "title": "AI 家庭助手设置",
+        "menu_options": {
+          "settings": "播报与天气设置",
+          "import_legacy": "导入原 Extended OpenAI 配置"
+        }
+      }
+    },
+    "error": {
+      "invalid_config": "配置无效，请检查模型连接、提示词、函数和参数范围。"
+    },
+    "abort": {
+      "import_successful": "已导入独立连接与助手。"
+    }
+  },
+  "config_subentries": {
+    "connection": {
+      "entry_type": "模型连接",
+      "step": {
+        "init": {
+          "title": "模型连接",
+          "description": "API 密钥留空代表保留。明确清除密钥须同时启用跳过认证。保存前验证候选连接，失败保留当前配置。 删除连接前请先修改引用它的助手。",
+          "data": {
+            "name": "名称",
+            "api_provider": "接口类型",
+            "api_key": "API 密钥",
+            "base_url": "Base URL",
+            "api_version": "API Version（Azure 必填）",
+            "organization": "Organization（可选）",
+            "skip_authentication": "跳过认证（不发送密钥）",
+            "clear_api_key": "明确清除已保存的密钥"
+          }
+        }
+      },
+      "error": {
+        "invalid_config": "配置无效，请检查模型连接、提示词、函数和参数范围。"
+      },
+      "abort": {
+        "no_connection": "请先添加一个模型连接。",
+        "already_configured": "已经配置，请在集成子条目或侧栏 AI 工具中管理。"
+      },
+      "initiate_flow": {
+        "user": "添加模型连接"
+      }
+    },
+    "conversation": {
+      "entry_type": "对话助手",
+      "step": {
+        "init": {
+          "title": "对话助手与高级函数",
+          "description": "每个助手独立选择连接、模型和上下文。函数使用 EOC 2.0.3 的 spec/function YAML 格式，保存时检查结构与命名冲突。所有时间均为中国北京时间。",
+          "data": {
+            "name": "助手名称",
+            "connection_id": "模型连接",
+            "chat_model": "模型名称",
+            "prompt": "提示词模板",
+            "functions": "高级函数 YAML",
+            "max_tokens": "单次回答最大 Token",
+            "top_p": "Top P",
+            "temperature": "温度",
+            "max_function_calls_per_conversation": "每轮最大函数调用数",
+            "attach_username": "附加用户名",
+            "use_tools": "使用 tools 协议（关闭使用 functions）",
+            "context_threshold": "上下文 Token 阈值",
+            "context_truncate_strategy": "达到阈值后的清理方式"
+          }
+        }
+      },
+      "error": {
+        "invalid_config": "配置无效，请检查模型连接、提示词、函数和参数范围。"
+      },
+      "abort": {
+        "no_connection": "请先添加一个模型连接。",
+        "already_configured": "已经配置，请在集成子条目或侧栏 AI 工具中管理。"
+      },
+      "initiate_flow": {
+        "user": "添加对话助手"
+      }
+    }
+  }
 }

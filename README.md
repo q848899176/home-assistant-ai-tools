@@ -2,20 +2,24 @@
 
 ![项目图标](custom_components/ha_ai_tools/brand/icon.png)
 
-通过现有 DeepSeek 和 Home Assistant 语音设备创建提醒、自动化，查询天气，并保留连续对话与永久记忆。界面为中文，业务时间统一为北京时间 `Asia/Shanghai`。
+通过独立配置的 DeepSeek、OpenAI、Azure 或本地兼容模型，结合 Home Assistant 语音设备创建提醒、自动化，查询天气，并保留连续对话与永久记忆。界面为中文，业务时间统一为北京时间 `Asia/Shanghai`。
 
 ## 功能
+
+- 模型：多连接、多助手，独立客户端；可导入 Extended OpenAI Conversation 2.0.3 稳定版配置，运行时无需安装该集成。
+- 高级函数：native、script、template、rest、scrape、composite、sqlite 七类，支持 tools 与旧 functions 协议。
+- 图像：`ha_ai_tools.query_image` 支持多张远程或 `www` 图片，使用所选助手的视觉模型；`ha_ai_tools.change_config` 供管理员更新连接。
 
 - 提醒：一次、每天、工作日、每周；重启恢复，可查看、取消，并修改待执行提醒的播报设备。已结束记录可单条删除或批量清理。
 - 播报：每条提醒独立选择一台或多台设备，到时仅向该条提醒选择的设备并行发送。默认设备只用于预选，修改默认设置不会改变已有提醒。
 - 自动化：创建后可在 HA 自动化页面编辑、停用。采用 HA 原生验证、文件锁和写入器。未加载成功的操作保留原 ID，可重试加载。
 - 天气：设置“家”“公司”等名称与现有天气实体映射，查询实况、每日和小时预报。
 - 上下文：同设备最近15分钟的新唤醒延续对话，保留近期12轮，旧内容压缩为摘要。
-- 记忆：自动提取明确稳定的偏好，支持“记住”“更正”“忘记”，页面可管理。HA 本地保存，按需提供给云端 DeepSeek。过滤明显的密码、密钥和临时状态，请勿口述凭据。
+- 记忆：自动提取明确稳定的偏好，支持“记住”“更正”“忘记”，页面可管理。HA 本地保存，按需提供给所选模型。过滤明显的密码、密钥和临时状态，请勿口述凭据。
 
 ## 安装与使用
 
-要求 Home Assistant **2026.10.1 或更高版本**，并预先配置 Extended OpenAI Conversation。当前客户端接口已在 Extended OpenAI Conversation **2.0.2** 与 DeepSeek 上验证；其他版本和提供方需自行确认兼容性。支持可播报的 `assist_satellite` 实体，以及由音箱集成提供的文本播报 `text` 实体。
+要求 Home Assistant **2026.10.1 或更高版本**，以及可用的 OpenAI 协议或 Azure 模型服务。支持可播报的 `assist_satellite` 实体，以及由音箱集成提供的文本播报 `text` 实体。语音识别和语音合成仍由 HA 语音流水线提供。
 
 ### HACS
 
@@ -36,10 +40,11 @@ HACS 自定义仓库安装不依赖默认商店收录；仓库可以安装并不
 ### 配置
 
 1. 在“设置 → 设备与服务 → 添加集成”搜索 **Home Assistant AI Tools**。
-2. 选择现有 Extended OpenAI Conversation 作为模型来源，无需重新输入密钥。
+2. 填写模型连接地址、密钥及模型；也可在“模型连接”页面预览并导入旧 EOC 2.0.3 配置。密钥仅保存到 HA 配置子条目，不会回显；编辑时留空表示保留。
 3. 在“设置 → 语音助手”打开正在使用的语音流水线，将对话代理选择为 **AI Tools**，保留已有 STT、TTS 设置。本集成本身不提供 STT 或 TTS。
 4. 打开侧栏 **AI 工具**，选择默认播报设备并保存，按需测试播报。
 5. 在“天气地点”设置名称与现有天气实体的映射；在“永久记忆”查看、修改或删除偏好。
+6. “对话助手”中可分别设置连接、模型、提示词和函数 YAML；高级参数控制输出长度、采样、工具轮次、用户名及上下文阈值。不同助手隔离近期上下文，共享记忆继续遵守家庭/个人归属。
 
 集成依赖当前语音流水线提供的识别文字；如识别错误，需要单独调整 STT。天气地点映射不会自动创建天气服务或按经纬度查询外部天气。
 
@@ -68,7 +73,7 @@ HACS 自定义仓库安装不依赖默认商店收录；仓库可以安装并不
 
 ## 开发检查
 
-使用 Python 3.14。安装 `homeassistant==2026.10.1 gazetteer-matcher==1.1.0 hassil==3.12.1 home-assistant-intents==2026.10.6 pytest pytest-asyncio ruff` 后运行：
+使用 Python 3.14，安装 HA 2026.10.1、manifest.json 中的依赖及 pytest、pytest-asyncio、ruff 后运行：
 
 ```sh
 python -m pytest -q
@@ -76,7 +81,7 @@ ruff check custom_components tests
 node --check custom_components/ha_ai_tools/frontend/panel.js
 ```
 
-首次公开版本的 93 项本地测试通过，另已验证真实 HA 管理接口、模型工具调用和 Home Assistant Voice 服务投递。服务投递成功不代表现场声音已经试听。
+测试覆盖原业务、独立连接、多助手、七类执行器、两种工具协议、图像路径与权限边界。实机验收和本地测试分别记录；服务投递成功不代表现场声音已经试听。
 
 ## 数据与隐私
 
@@ -90,3 +95,17 @@ node --check custom_components/ha_ai_tools/frontend/panel.js
 ## 许可证
 
 [MIT](LICENSE)。本项目为社区自定义集成。
+
+## EOC 2.0.3 兼容与迁移
+
+保留 `spec` / `function` YAML 格式及稳定版模型参数。native 支持 execute_service、execute_service_single、add_automation、get_history、get_energy、get_statistics、get_user_from_user_id。
+
+升级已有版本时保留根配置条目和默认对话实体，提醒、地点、播报设备及永久记忆继续使用原 Store。原 EOC 配置作为回退保留。若自动导入失败，提醒照常调度，可在管理页检查后重试；不要删除原配置后再导入。
+
+新事件使用 `ha_ai_tools.conversation.finished` 和 `automation_registered_via_ha_ai_tools`，保留对话响应/消息及自动化配置字段。引用旧服务或事件的自动化须按导入预览逐项调整，不自动批量改写。
+
+高级函数由管理员配置。普通实体调用遵守 Assist 暴露及用户权限；动态脚本目标必须可预检。REST 地址限制在管理员配置的 origin；SQLite 数据库限制在 HA 配置目录且只读，Recorder 查询按公开实体过滤。无限调用、任意文件、管理域服务及越权读取不属于兼容范围。
+
+图像问答仅管理员或可信 HA 自动化可调用；本地图片仅限 `/config/www` 或 `/local`，不跟随符号链接。最多10张静态 PNG/JPEG/GIF/WebP，每张10 MiB、合计20 MiB。图片会发送给所选模型；模型不支持视觉时返回明确错误。
+
+“跳过认证”会明确不发送认证头，适用于匿名兼容服务；此选项与 EOC 的仅跳过认证预检语义不同。函数后台延迟任务会在集成卸载时取消；长任务请使用原生 HA 自动化。上游 MIT 来源声明见 [NOTICE](custom_components/ha_ai_tools/functions/NOTICE)。
