@@ -297,6 +297,96 @@ async def test_unknown_location_does_not_fall_back_to_wrong_place():
         await m.async_weather("公司", "current")
 
 
+async def test_weather_recovers_the_selected_source_before_returning_a_failure():
+    m = manager()
+    state = m.hass.states.get("weather.home")
+    state.state = "unavailable"
+    calls = []
+    original = m.hass.services.async_call
+
+    async def refresh(domain, service, data, **kwargs):
+        calls.append((domain, service, data))
+        if service == "update_entity":
+            state.state = "rainy"
+            state.attributes["temperature"] = 16
+            return None
+        return await original(domain, service, data, **kwargs)
+
+    m.hass.services.async_call = refresh
+    value = await m.async_weather("家", "daily")
+    assert value["condition"] == "rainy"
+    assert value["temperature"] == 16
+    assert value["forecast"][0]["temperature"] == 20
+    assert calls == [
+        ("homeassistant", "update_entity", {"entity_id": "weather.home"}),
+        ("weather", "get_forecasts", {"entity_id": "weather.home", "type": "daily"}),
+    ]
+
+
+@pytest.mark.parametrize("failure", [None, "network", "timeout"])
+async def test_offline_weather_explains_the_source_and_recovery_without_leaking(failure):
+    from homeassistant.exceptions import HomeAssistantError
+
+    m = manager()
+    m.hass.states.get("weather.home").state = "unavailable"
+    calls = []
+
+    async def refresh(domain, service, data, **kwargs):
+        calls.append(data["entity_id"])
+        if failure == "network":
+            raise HomeAssistantError("secret provider credentials")
+        if failure == "timeout":
+            raise TimeoutError("secret provider credentials")
+
+    m.hass.services.async_call = refresh
+    with pytest.raises(ValueError) as caught:
+        await m.async_weather("家")
+    message = str(caught.value)
+    assert all(word in message for word in ("家", "weather.home", "刷新", "天气地点"))
+    assert "secret" not in message
+    assert calls == ["weather.home"]
+
+
+async def test_weather_refresh_has_a_deadline(monkeypatch):
+    m = manager()
+    m.hass.states.get("weather.home").state = "unknown"
+    cancelled = asyncio.Event()
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(asyncio, "timeout", lambda seconds: original_timeout(0.01))
+
+    async def stalled(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    m.hass.services.async_call = stalled
+    with pytest.raises(ValueError, match="刷新"):
+        await m.async_weather("家")
+    assert cancelled.is_set()
+
+
+async def test_missing_weather_binding_is_not_replaced_by_another_place():
+    m = manager()
+    m.entry.options["locations"]["家"] = "weather.removed"
+    with pytest.raises(ValueError, match="不存在.*天气地点"):
+        await m.async_weather("家")
+
+
+async def test_weather_forecast_error_has_a_safe_actionable_message():
+    from homeassistant.exceptions import HomeAssistantError
+
+    m = manager()
+
+    async def unavailable(*args, **kwargs):
+        raise HomeAssistantError("secret provider credentials")
+
+    m.hass.services.async_call = unavailable
+    with pytest.raises(ValueError, match="预报.*重试") as caught:
+        await m.async_weather("家", "hourly")
+    assert "secret" not in str(caught.value)
+
+
 async def test_each_reminder_can_use_devices_other_than_defaults():
     m = manager()
     await m.async_load()

@@ -2,6 +2,8 @@ import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from custom_components.ha_ai_tools import models
 from custom_components.ha_ai_tools.engine import ConversationEngine
 from tests.test_manager import manager
@@ -214,3 +216,47 @@ async def test_expired_session_does_not_execute_stale_reference():
     client = Client([reply("哪个设备？")])
     await ConversationEngine(m).async_run(user("把它关掉"), client, "deepseek", [])
     assert all(x.get("content") != "客厅灯" for x in client.requests[0]["messages"])
+
+
+@pytest.mark.parametrize("prefix", ["请复述：", "请描述："])
+@pytest.mark.parametrize("name", ["create_reminder", "execute_services", "create_automation", "remember"])
+async def test_repeating_or_describing_instructions_does_not_execute_mutations(monkeypatch, prefix, name):
+    from custom_components.ha_ai_tools import engine as module
+
+    m = manager()
+    await m.async_load()
+    executed = []
+
+    async def mutate(*args):
+        executed.append(args)
+        return {"changed": True}
+
+    monkeypatch.setattr(module, "async_tool", mutate)
+    call = {"id": "quote", "type": "function", "function": {"name": name, "arguments": "{}"}}
+    client = Client([reply(None, [call]), reply("这里只复述，不执行操作。")])
+    await ConversationEngine(m).async_run(user(prefix + "明早七点提醒我带雨伞。"), client, "m", [])
+    assert executed == []
+    assert '"ok": false' in client.requests[1]["messages"][-1]["content"]
+
+
+async def test_repeated_preferences_are_not_saved_as_user_preferences(monkeypatch):
+    m = manager()
+    await m.async_load()
+    extracted = []
+    engine = ConversationEngine(m)
+
+    async def extract(*args):
+        extracted.append(args)
+
+    monkeypatch.setattr(engine, "_auto_memory", extract)
+    await engine.async_run(user("请复述：我喜欢空调保持二十六度。"), Client([reply("我喜欢空调保持二十六度。")]), "m", [])
+    assert extracted == []
+
+
+async def test_describing_current_weather_can_still_query_the_real_source():
+    m = manager()
+    await m.async_load()
+    call = {"id": "read", "type": "function", "function": {"name": "get_weather", "arguments": '{"location":"家"}'}}
+    client = Client([reply(None, [call]), reply("天气晴朗。")])
+    await ConversationEngine(m).async_run(user("请描述家里当前的天气。"), client, "m", [])
+    assert '"ok": true' in client.requests[1]["messages"][-1]["content"]

@@ -16,10 +16,14 @@
   ],
   "config_flow": true,
   "dependencies": [
+    "assist_pipeline",
     "conversation",
+    "ffmpeg",
     "frontend",
     "http",
-    "panel_custom"
+    "panel_custom",
+    "stt",
+    "tts"
   ],
   "documentation": "https://github.com/q848899176/home-assistant-ai-tools",
   "integration_type": "service",
@@ -31,5 +35,5 @@
     "openai>=3.10.0",
     "xmltodict>=1.0.4"
   ],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

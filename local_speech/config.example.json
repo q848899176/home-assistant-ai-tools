@@ -1,0 +1,7 @@
+{
+  "bind_host": "127.0.0.1",
+  "port": 18973,
+  "api_key": "REPLACE_WITH_A_NEW_RANDOM_SERVICE_KEY",
+  "allowed_sources": ["127.0.0.1"],
+  "models": {}
+}

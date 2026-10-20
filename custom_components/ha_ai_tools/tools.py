@@ -315,6 +315,11 @@ async def async_tool(manager, name, args, user_input, request_id, generation=Non
         raise ValueError("工具参数必须是对象")
     scope = "user:" + user_input.context.user_id if user_input.context.user_id else "family"
     if name == "create_reminder":
+        runtime = getattr(manager, "speech", None)
+        if runtime is not None and getattr(runtime, "testing", None):
+            test_id = runtime.testing.test_id_for_device(user_input.device_id)
+            if test_id:
+                return await manager.async_add_reminder(args, request_id, test_id=test_id)
         return await manager.async_add_reminder(args, request_id)
     if name == "list_reminders":
         return {"reminders": [r for r in manager.data["reminders"] if r["status"] == "pending"]}

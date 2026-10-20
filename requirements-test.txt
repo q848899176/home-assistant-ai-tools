@@ -1,0 +1,14 @@
+# Python 3.14; Home Assistant core + integration dependencies + test tools.
+homeassistant==2026.10.2
+beautifulsoup4>=4.13.3
+jsonschema==4.25.1
+openai>=3.10.0
+xmltodict>=1.0.4
+# HA's optional TTS platform dependencies, required for compatibility tests.
+mutagen==1.48.1
+ha-ffmpeg==3.2.2
+pytest>=8
+pytest-asyncio>=0.25
+ruff>=0.12
+pymicro-vad==1.0.1
+pyspeex-noise==1.0.2

@@ -117,3 +117,38 @@ async def test_native_automation_write_and_failed_reload_reuse_one_id(tmp_path, 
     assert first["id"] == second["id"]
     saved = yaml.safe_load((tmp_path / "automations.yaml").read_text())
     assert len(saved) == 1 and saved[0]["id"] == first["id"]
+
+
+async def test_speech_apply_restore_uses_real_ha_pipeline_collection(tmp_path, monkeypatch):
+    from homeassistant.components.assist_pipeline.models import Pipeline
+    from homeassistant.components.assist_pipeline.pipeline import (
+        KEY_ASSIST_PIPELINE,
+        PipelineStorageCollection,
+        PipelineStore,
+    )
+
+    from custom_components.ha_ai_tools.speech.pipeline import PipelineManager, SpeechStore
+    from tests.test_manager import Store
+
+    hass = HomeAssistant(str(tmp_path))
+    collection = PipelineStorageCollection(PipelineStore(hass, 1, "test.pipeline"))
+    original = Pipeline(conversation_engine="conversation.home_assistant", conversation_language="zh-CN",
+                        language="zh", name="原助手", stt_engine="stt.old", stt_language="zh-CN",
+                        tts_engine="tts.old", tts_language="zh_CN", tts_voice="original",
+                        wake_word_entity=None, wake_word_id=None, prefer_local_intents=True)
+    collection.data[original.id] = original
+    collection._preferred_item = original.id
+    monkeypatch.setattr(collection, "_async_schedule_save", lambda: None)
+    hass.data[KEY_ASSIST_PIPELINE] = SimpleNamespace(pipeline_store=collection)
+    store = SpeechStore(hass, "test", store=Store())
+    await store.async_load()
+    manager = PipelineManager(hass, store)
+    point = await manager.async_preview({"pipelines": [{"id": original.id, "fields": {
+        "stt_engine": "stt.local", "stt_language": "zh", "tts_engine": "tts.local", "tts_language": "zh", "tts_voice": "Serena"}}]})
+    assert (await manager.async_apply(point["id"], point["fingerprint"]))["applied"]
+    updated = collection.data[original.id]
+    assert updated.tts_voice == "Serena" and updated.prefer_local_intents
+    assert updated.conversation_engine == original.conversation_engine
+    assert collection.async_get_preferred_item() == original.id
+    assert (await manager.async_restore(point["id"]))["status"] == "restored"
+    assert collection.data[original.id] == original

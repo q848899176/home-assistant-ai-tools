@@ -176,7 +176,7 @@ class AIToolsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @classmethod
     @callback
     def async_get_supported_subentry_types(cls, config_entry):
-        return {"connection": ConnectionSubentryFlow, "conversation": ConversationSubentryFlow}
+        return {"connection": ConnectionSubentryFlow, "conversation": ConversationSubentryFlow, "speech": SpeechSubentryFlow}
 
     @staticmethod
     @callback
@@ -379,3 +379,42 @@ class ConversationSubentryFlow(config_entries.ConfigSubentryFlow):
         return self.async_show_form(
             step_id="init", data_schema=_profile_schema(entry, defaults), errors=errors
         )
+
+
+class SpeechSubentryFlow(config_entries.ConfigSubentryFlow):
+    async def async_step_user(self, user_input=None):
+        return await self.async_step_init(user_input)
+
+    async def async_step_reconfigure(self, user_input=None):
+        return await self.async_step_init(user_input)
+
+    async def async_step_init(self, user_input=None):
+        from .speech.client import SpeechClient
+        from .speech.config import DEFAULTS, async_save_speech, validate_speech
+
+        entry = self._get_entry()
+        existing = self._get_reconfigure_subentry() if self.source == "reconfigure" else None
+        defaults = {**DEFAULTS, **(dict(existing.data) if existing else {})}
+        errors = {}
+        if user_input is not None:
+            try:
+                if existing is not None:
+                    manager, _ = _manager(self.hass, entry)
+                    await async_save_speech(manager, {**user_input, "id": defaults["id"]})
+                    return self.async_abort(reason="reconfigure_successful", translation_domain="homeassistant")
+                data = validate_speech(user_input)
+                client = SpeechClient(data)
+                try:
+                    data["verified"] = await client.async_probe()
+                finally:
+                    await client.async_close()
+                return self.async_create_entry(title=data["name"], data=data, unique_id=f"speech:{data['id']}")
+            except ValueError:
+                errors["base"] = "invalid_config"
+        fields = {vol.Required("name", default=defaults["name"]): str,
+                  vol.Required("base_url", default=defaults["base_url"]): str,
+                  vol.Optional("api_key", default=""): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+                  vol.Required("capabilities", default=defaults["capabilities"]): selector.SelectSelector(selector.SelectSelectorConfig(options=["stt", "tts"], multiple=True))}
+        for name in ("stt_model", "tts_model", "voice"):
+            fields[vol.Optional(name, default=defaults[name])] = str
+        return self.async_show_form(step_id="init", data_schema=vol.Schema(fields), errors=errors)

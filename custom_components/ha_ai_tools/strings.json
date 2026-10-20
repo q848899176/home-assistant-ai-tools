@@ -145,6 +145,30 @@
       "initiate_flow": {
         "user": "添加对话助手"
       }
+    },
+    "speech": {
+      "initiate_flow": {
+        "user": "添加语音服务"
+      },
+      "step": {
+        "init": {
+          "title": "本地语音识别与合成",
+          "description": "保存连接只创建语音实体，不会切换现有流水线。留空密钥可保留原值。",
+          "data": {
+            "name": "名称",
+            "base_url": "Mac 语音服务地址",
+            "api_key": "独立服务密钥",
+            "capabilities": "启用能力",
+            "stt_model": "识别模型",
+            "tts_model": "合成模型",
+            "voice": "默认音色"
+          }
+        }
+      },
+      "error": {
+        "invalid_config": "连接或模型验证失败，请检查本地服务和配置。"
+      },
+      "entry_type": "语音服务"
     }
   }
 }

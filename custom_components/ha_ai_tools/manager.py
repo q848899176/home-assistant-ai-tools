@@ -188,7 +188,15 @@ class ToolsManager:
             result.append(entity_id)
         return result
 
-    async def async_add_reminder(self, args, request_id):
+    async def async_add_reminder(self, args, request_id, *, test_id=None):
+        if test_id is not None:
+            runtime = getattr(self, "speech", None)
+            if runtime is None or not getattr(runtime, "testing", None):
+                raise ValueError("测试身份无法验证")
+            run = runtime.store.data["test_runs"].get(test_id)
+            defaults = run["targets"] if run else []
+            outputs = runtime.testing.validate_targets(test_id, args.get("outputs", defaults))
+            args = {**args, "outputs": outputs}
         def change(data):
             for reminder in data["reminders"]:
                 if reminder.get("request_id") == request_id:
@@ -216,6 +224,8 @@ class ToolsManager:
                 "created_at": models.now().isoformat(),
                 "request_id": request_id,
             }
+            if test_id is not None:
+                item["test_id"] = test_id
             data["reminders"].append(item)
             return item
 
@@ -228,6 +238,8 @@ class ToolsManager:
             item = next((r for r in data["reminders"] if r["id"] == reminder_id), None)
             if not item or item["status"] != "pending":
                 raise ValueError("只能修改尚未开始播报的提醒")
+            if item.get("test_id"):
+                self.speech.testing.validate_targets(item["test_id"], outputs)
             item["outputs"] = self.validate_outputs(outputs, selected_only=False)
             return item
 
@@ -268,35 +280,10 @@ class ToolsManager:
 
         return await self._update(change)
 
-    async def async_broadcast(self, message, outputs):
-        async def send(entity_id):
-            try:
-                state = self.hass.states.get(entity_id)
-                if state is None or state.state in ("unavailable", "unknown"):
-                    return entity_id, "failed"
-                if entity_id.startswith("assist_satellite."):
-                    await self.hass.services.async_call(
-                        "assist_satellite",
-                        "announce",
-                        {"entity_id": entity_id, "message": message},
-                        blocking=True,
-                    )
-                elif entity_id.startswith("text."):
-                    for start in range(0, len(message), 200):
-                        await self.hass.services.async_call(
-                            "text",
-                            "set_value",
-                            {"entity_id": entity_id, "value": message[start : start + 200]},
-                            blocking=True,
-                        )
-                else:
-                    return entity_id, "failed"
-                return entity_id, "delivered"
-            except Exception as err:
-                _LOGGER.warning("播报失败 (%s): %s", entity_id, type(err).__name__)
-                return entity_id, "failed"
+    async def async_broadcast(self, message, outputs, *, test_id=None):
+        from .speech.broadcast import async_send
 
-        return dict(await asyncio.gather(*(send(e) for e in dict.fromkeys(outputs))))
+        return await async_send(self, message, outputs, test_id=test_id)
 
     async def async_run_due(self):
         task = asyncio.current_task()
@@ -326,7 +313,13 @@ class ToolsManager:
                 item = await self._update(claim)
                 if item is None:
                     continue
-                outcomes = await self.async_broadcast(item["message"], item["outputs"])
+                try:
+                    if item.get("test_id"):
+                        outcomes = await self.async_broadcast(item["message"], item["outputs"], test_id=item["test_id"])
+                    else:
+                        outcomes = await self.async_broadcast(item["message"], item["outputs"])
+                except ValueError:
+                    outcomes = dict.fromkeys(item["outputs"], "failed")
 
                 def finish(data, reminder_id=reminder_id, outcomes=outcomes, item=item):
                     current = next(r for r in data["reminders"] if r["id"] == reminder_id)
@@ -354,14 +347,61 @@ class ToolsManager:
             self.async_schedule()
 
     async def async_weather(self, location=None, kind="current"):
+        from .weather import weather_sources
+
+        if kind not in ("current", "daily", "hourly"):
+            raise ValueError("只支持实况、每日或每小时预报")
         locations = self.settings.get("locations", {})
         location = location or next(iter(locations), None)
         entity_id = locations.get(location)
         if not entity_id:
             raise ValueError("尚未配置此地点的天气，请在 AI 工具页面选择")
+        sources = weather_sources(self.hass, entity_id)
+        sources.sort(
+            key=lambda source: (state := self.hass.states.get(source)) is None
+            or state.state in ("unknown", "unavailable")
+        )
+        errors = []
+        try:
+            async with asyncio.timeout(20):
+                for source in sources:
+                    try:
+                        result = await self._async_weather_source(location, source, kind)
+                    except ValueError as err:
+                        errors.append(str(err))
+                        continue
+                    result["primary_entity_id"] = entity_id
+                    result["fallback_used"] = source != entity_id
+                    return result
+        except TimeoutError:
+            raise ValueError(f"“{location}”的天气查询超时，已尝试刷新或查询同地点来源，请稍后重试") from None
+        if len(sources) == 1:
+            raise ValueError(errors[0])
+        raise ValueError(f"“{location}”的同地点天气来源均不可用，已尝试自动切换和刷新，请稍后重试")
+
+    async def _async_weather_source(self, location, entity_id, kind):
+        from homeassistant.components.weather.const import WeatherEntityFeature
+        from homeassistant.exceptions import HomeAssistantError
+
         state = self.hass.states.get(entity_id)
-        if not state or state.state in ("unknown", "unavailable"):
-            raise ValueError("该地点天气源当前不可用")
+        if not state:
+            raise ValueError(
+                f"“{location}”绑定的天气实体（{entity_id}）已不存在，请在“天气地点”重新选择并保存"
+            )
+        if state.state in ("unknown", "unavailable"):
+            try:
+                async with asyncio.timeout(8):
+                    await self.hass.services.async_call(
+                        "homeassistant", "update_entity", {"entity_id": entity_id}, blocking=True
+                    )
+            except (HomeAssistantError, TimeoutError):
+                pass
+            state = self.hass.states.get(entity_id)
+            if not state or state.state in ("unknown", "unavailable"):
+                raise ValueError(
+                    f"“{location}”的天气服务暂时无法连接（{entity_id}），已尝试刷新。"
+                    "请稍后重试，或在“天气地点”选择同一地点的其他可用来源"
+                )
         result = {
             "location": location,
             "entity_id": entity_id,
@@ -381,15 +421,22 @@ class ToolsManager:
             if key in state.attributes:
                 result[key] = state.attributes[key]
         if kind != "current":
-            if kind not in ("daily", "hourly"):
-                raise ValueError("只支持实况、每日或每小时预报")
-            response = await self.hass.services.async_call(
-                "weather",
-                "get_forecasts",
-                {"entity_id": entity_id, "type": kind},
-                blocking=True,
-                return_response=True,
-            )
+            feature = WeatherEntityFeature.FORECAST_DAILY if kind == "daily" else WeatherEntityFeature.FORECAST_HOURLY
+            if not state.attributes.get("supported_features", 0) & feature:
+                raise ValueError(f"该天气来源不支持所需预报（{entity_id}）")
+            try:
+                async with asyncio.timeout(10):
+                    response = await self.hass.services.async_call(
+                        "weather",
+                        "get_forecasts",
+                        {"entity_id": entity_id, "type": kind},
+                        blocking=True,
+                        return_response=True,
+                    )
+            except (HomeAssistantError, TimeoutError):
+                raise ValueError(
+                    f"“{location}”的天气预报获取失败（{entity_id}），请稍后重试或检查天气集成连接"
+                ) from None
             forecasts = (response or {}).get(entity_id, {}).get("forecast")
             if not forecasts:
                 raise ValueError("该天气源暂未返回所需预报")

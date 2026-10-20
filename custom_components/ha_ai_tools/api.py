@@ -76,6 +76,8 @@ def broadcast_devices(manager):
 def snapshot(manager):
     from homeassistant.helpers import entity_registry as er
 
+    from .weather import weather_sources
+
     hass = manager.hass
     entities = er.async_get(hass)
     weather, sources = [], []
@@ -88,8 +90,16 @@ def snapshot(manager):
         ):
             sources.append({"entity_id": state.entity_id, "name": state.name})
         if state.entity_id.startswith("weather."):
-            weather.append({"entity_id": state.entity_id, "name": state.name, "state": state.state})
+            weather.append(
+                {
+                    "entity_id": state.entity_id,
+                    "name": state.name,
+                    "state": state.state,
+                    "fallback_entities": weather_sources(hass, state.entity_id)[1:],
+                }
+            )
     from .provider import list_connections, list_profiles
+    from .speech.api import snapshot as speech_snapshot
 
     profiles = list_profiles(manager.entry)
     for profile in profiles:
@@ -117,6 +127,7 @@ def snapshot(manager):
         "memories": deepcopy(manager.data["memories"][::-1]),
         "session_count": len(manager.data["sessions"]),
         "timezone": "Asia/Shanghai",
+        "speech": speech_snapshot(manager),
     }
 
 
@@ -154,7 +165,12 @@ def _function_credentials(raw):
     return visit(raw)
 
 
-async def async_action(manager, action, payload):
+async def async_action(manager, action, payload, *, actor=None):
+    from .speech.api import ACTIONS
+    from .speech.api import async_action as speech_action
+
+    if action in ACTIONS:
+        return await speech_action(manager, action, payload, actor=actor)
     if action == "preview_legacy":
         from .functions import compile_functions
         from .provider import get_provider, validate_profile
@@ -262,14 +278,19 @@ async def async_action(manager, action, payload):
     if action == "weather":
         return await manager.async_weather(payload.get("location"), payload.get("kind", "current"))
     if action == "test_broadcast":
-        outputs = manager.validate_outputs(manager.settings.get("outputs", []))
-        return await manager.async_broadcast("这是 AI 工具的播报测试。", outputs)
+        runtime = getattr(manager, "speech", None)
+        if runtime is None or not getattr(runtime, "testing", None) or not payload.get("test_id"):
+            raise ValueError("请先选择Nabu并建立专用测试会话；不会向全屋默认设备测试播报")
+        run = runtime.store.data["test_runs"].get(payload["test_id"], {})
+        outputs = runtime.testing.validate_targets(payload["test_id"], payload.get("outputs", run.get("targets", [])))
+        return await manager.async_broadcast("这是 AI 工具的播报测试。", outputs, test_id=payload["test_id"])
     raise ValueError("未知管理操作")
 
 
 def async_register(hass):
     import probatio as vol
     from homeassistant.components import websocket_api
+
 
     @websocket_api.websocket_command({vol.Required("type"): "ha_ai_tools/data"})
     @websocket_api.require_admin
@@ -296,7 +317,7 @@ def async_register(hass):
             connection.send_error(msg["id"], "not_ready", "请先添加 AI Tools 集成")
             return
         try:
-            result = await async_action(manager, msg["action"], msg["payload"])
+            result = await async_action(manager, msg["action"], msg["payload"], actor=connection.user.id)
         except ValueError as err:
             connection.send_error(msg["id"], "invalid_value", models.sanitize(str(err)))
         except Exception as err:

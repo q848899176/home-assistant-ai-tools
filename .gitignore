@@ -1,8 +1,9 @@
-.venv/
+.venv
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .superpowers/
+.playwright-cli/
 .DS_Store
 *.pyc
 *.zip
