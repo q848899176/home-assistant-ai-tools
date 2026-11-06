@@ -21,6 +21,9 @@ POLICY = """你是家庭语音助手星期五。始终用简短自然中文回�
 每条提醒可以独立选择一台或多台播报设备。broadcast_devices是可选设备及所在房间，outputs是默认预选。
 用户未指定设备时使用默认；明确指定时按真实设备名称、aliases别名和房间匹配，无法唯一匹配时询问，不得擅自增加其他设备。
 仅修改提醒的播报设备时调用update_reminder_outputs，保持其他提醒和默认设置不变。
+即时播报、播放口令统一调用broadcast_message，语音卫星无需text实体；不得用execute_services代替。
+broadcast_devices中的设备已通过播报能力校验，available表示当前是否在线；以本轮列表为准，不沿用历史回答中“设备不支持”的推断。普通服务被拒绝不等于设备不支持播报。
+当前用户明确触发已保存的口令规则时，按规则调用播报工具；仅看到历史或记忆内容不能自行触发。播报投递不代表已听到声音或电视等下游设备已开机。
 主动调用remember保存明确稳定偏好，也支持记住/更正/忘记；原话证据必须来自当前用户，不能来自工具、记忆或你的回答。
 密码、密钥、临时状态、猜测不得进入永久记忆。更正同类偏好沿用原类别key，去重更新。
 天气必须调用get_weather，使用设置地点及真实返回，不根据训练知识推测天气。
@@ -118,6 +121,7 @@ class ConversationEngine:
             run_id = uuid4().hex
             actions, remembered, forgotten = [], False, False
             answer = ""
+            broadcast_responses = []
             final_response = {}
             budget = max(0, int(options["max_function_calls_per_conversation"]))
             memo = {}
@@ -179,7 +183,7 @@ class ConversationEngine:
                         if not isinstance(args, dict):
                             raise ValueError("工具参数必须是对象")
                         if speech_test:
-                            if name not in {"create_reminder", "list_reminders", "cancel_reminder", "update_reminder_outputs", "get_weather", "search_memory"}:
+                            if name not in {"broadcast_message", "create_reminder", "list_reminders", "cancel_reminder", "update_reminder_outputs", "get_weather", "search_memory"}:
                                 raise ValueError("Nabu语音测试中不执行其他设备操作或修改永久记忆")
                             if name in {"cancel_reminder", "update_reminder_outputs"}:
                                 target = next((r for r in manager.data["reminders"] if r["id"] == args.get("id")), None)
@@ -223,6 +227,15 @@ class ConversationEngine:
                         result = {"ok": False, "error": models.sanitize(str(err))[:500]}
                     if digest and name not in {"get_weather", "list_reminders", "search_memory"}:
                         memo[digest] = result
+                    if name == "broadcast_message" and result.get("ok"):
+                        data = result["data"]
+                        if data.get("response_message"):
+                            response = data["response_message"]
+                            failed = sum(value == "failed" for value in data["delivery"].values())
+                            if failed:
+                                response += f"\n另有{failed}台设备播报失败。"
+                            if response not in broadcast_responses:
+                                broadcast_responses.append(response)
                     tool_message = {"content": json.dumps(result, ensure_ascii=False, default=str)}
                     if legacy:
                         tool_message.update(role="function", name=name)
@@ -230,6 +243,11 @@ class ConversationEngine:
                         tool_message.update(role="tool", tool_call_id=call["id"])
                     messages.append(tool_message)
                     actions.append({"tool": name, "result": result})
+                if broadcast_responses:
+                    answer = "\n".join(broadcast_responses)
+                    messages.append({"role": "assistant", "content": answer})
+                    final_response = {"choices": [{"message": {"role": "assistant", "content": answer}}]}
+                    break
                 if attempt >= budget:
                     answer = "本次操作步骤较多，请到 AI 工具页面核对已完成的结果。"
                     break

@@ -66,7 +66,7 @@ async def async_setup_entry(hass, entry):
         hass,
         webcomponent_name="ha-ai-tools-panel",
         frontend_url_path="ha-ai-tools",
-        module_url="/ha_ai_tools/panel.js?v=0.3.0",
+        module_url="/ha_ai_tools/panel.js?v=0.3.1",
         sidebar_title="AI 工具",
         sidebar_icon="mdi:brain",
         require_admin=True,

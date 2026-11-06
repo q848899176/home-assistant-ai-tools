@@ -35,5 +35,5 @@
     "openai>=3.10.0",
     "xmltodict>=1.0.4"
   ],
-  "version": "0.3.0"
+  "version": "0.3.1"
 }

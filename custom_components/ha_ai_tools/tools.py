@@ -77,6 +77,15 @@ def allowed_service(domain, service):
 STRING = {"type": "string"}
 TOOLS = [
     spec(
+        "broadcast_message",
+        "立即播报用户要求的内容，或当前用户明确触发的已保存口令规则。语音卫星和文本音箱均使用此工具，不通过execute_services播报。省略outputs使用默认设备；明确指定时从broadcast_devices选择，不擅自增加或替换设备。返回的是服务投递结果，不代表已经听到声音或下游设备已开机。",
+        {
+            "message": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "outputs": {"type": "array", "items": STRING, "minItems": 1, "maxItems": 50},
+        },
+        ["message"],
+    ),
+    spec(
         "create_reminder",
         "创建持久提醒；时间为北京时间。at和in_minutes必须且只能选一个。每条提醒独立选择outputs，可一台或多台；用户未指定设备时省略outputs，使用默认设备。设备必须来自broadcast_devices。",
         {
@@ -314,6 +323,37 @@ async def async_tool(manager, name, args, user_input, request_id, generation=Non
     if not isinstance(args, dict):
         raise ValueError("工具参数必须是对象")
     scope = "user:" + user_input.context.user_id if user_input.context.user_id else "family"
+    if name == "broadcast_message":
+        from homeassistant.auth.permissions.const import POLICY_CONTROL
+
+        from .functions import FunctionExecutor
+
+        message = models.bounded_text(args.get("message"), "播报内容", 1000)
+        if models.sanitize(message) != message:
+            raise ValueError("播报内容不能包含密码或密钥")
+        runtime = getattr(manager, "speech", None)
+        testing = getattr(runtime, "testing", None)
+        test_id = testing.test_id_for_device(user_input.device_id) if testing else None
+        defaults = runtime.store.data["test_runs"][test_id]["targets"] if test_id else manager.settings.get("outputs", [])
+        outputs = args.get("outputs", defaults)
+        if test_id:
+            outputs = testing.validate_targets(test_id, outputs)
+        outputs = manager.validate_outputs(outputs, selected_only=False)
+        actor = await FunctionExecutor(manager)._actor(user_input)
+        if actor is not None and any(not actor.permissions.check_entity(entity, POLICY_CONTROL) for entity in outputs):
+            raise ValueError("当前用户没有播报设备操作权限，此次未进行播报")
+        current = getattr(user_input, "satellite_id", None)
+        reply_here = current in outputs
+        announce_outputs = [entity for entity in outputs if entity != current]
+        # announce cancels the target satellite's active pipeline; use its own
+        # response for a self-targeted request so the conversation can finish.
+        delivery = await manager.async_broadcast(message, announce_outputs, test_id=test_id) if announce_outputs else {}
+        accepted = all(value == "delivered" for value in delivery.values()) if delivery else None
+        if reply_here:
+            delivery[current] = "via_response"
+        return {"delivery": delivery, "service_accepted": accepted,
+                "response_message": message if reply_here else None,
+                "notice": "仅表示服务投递结果，不代表实际已听到声音或下游设备已响应；失败不自动更换设备或重播。"}
     if name == "create_reminder":
         runtime = getattr(manager, "speech", None)
         if runtime is not None and getattr(runtime, "testing", None):

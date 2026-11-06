@@ -160,6 +160,8 @@ class FunctionExecutor:
             and not read_service
             and not (domain == "homeassistant" and service in {"turn_on", "turn_off", "toggle"})
         ):
+            if domain == "assist_satellite" and service == "announce":
+                raise ValueError("此设备控制工具不执行语音播报，请改用broadcast_message；这不表示设备不支持播报")
             raise ValueError("不允许的设备服务")
         if not self.hass.services.has_service(domain, service):
             raise ValueError("HA服务不存在")

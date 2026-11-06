@@ -219,7 +219,7 @@ async def test_expired_session_does_not_execute_stale_reference():
 
 
 @pytest.mark.parametrize("prefix", ["请复述：", "请描述："])
-@pytest.mark.parametrize("name", ["create_reminder", "execute_services", "create_automation", "remember"])
+@pytest.mark.parametrize("name", ["broadcast_message", "create_reminder", "execute_services", "create_automation", "remember"])
 async def test_repeating_or_describing_instructions_does_not_execute_mutations(monkeypatch, prefix, name):
     from custom_components.ha_ai_tools import engine as module
 
